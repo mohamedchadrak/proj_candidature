@@ -37,6 +37,33 @@ public abstract class AiProviderBase : IAiProvider
         return DeserializeOrThrow<JobRequirements>(json);
     }
 
+    public async Task<ExtractedCvContent> ExtractCvFactsAsync(string cvText, string apiKeyPlainText, CancellationToken cancellationToken = default)
+    {
+        const string system = """
+            Tu structures un CV existant en faits atomiques, sans jamais ajouter, déduire ou enjoliver
+            une information absente du texte fourni. Règle ABSOLUE : retranscris fidèlement, n'invente
+            rien, ne complète pas une date ou une compétence non explicitement mentionnée — si une
+            information n'est pas dans le texte, laisse le champ correspondant vide/null.
+
+            Découpe le contenu en faits, chacun rattaché à l'une de ces catégories exactement :
+            Experience, Formation, Projet, CompetenceTechnique, CompetenceTransversale, Langue, CentreInteret.
+            Pour les dates, utilise le format "yyyy-MM" si le mois est connu, "yyyy" sinon, ou null si absent.
+
+            Réponds STRICTEMENT avec un objet JSON conforme au schéma suivant, sans texte autour ni
+            bloc markdown :
+            {
+              "fullName": string|null, "phone": string|null, "email": string|null,
+              "linkedInUrl": string|null, "websiteUrl": string|null,
+              "facts": [ { "type": string, "title": string, "organization": string|null,
+                           "description": string|null, "startDate": string|null, "endDate": string|null,
+                           "tags": string } ]
+            }
+            """;
+
+        var json = await SendAndExtractJsonAsync(system, cvText, apiKeyPlainText, cancellationToken);
+        return DeserializeOrThrow<ExtractedCvContent>(json);
+    }
+
     public async Task<TailoredCvContent> GenerateTailoredCvAsync(
         IReadOnlyCollection<CvFact> facts,
         JobRequirements requirements,

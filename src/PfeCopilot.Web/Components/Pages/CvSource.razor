@@ -2,11 +2,14 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Ai.Models
+@using PfeCopilot.Application.Applications
 @using PfeCopilot.Application.Common
 @using PfeCopilot.Domain.Entities
 @using PfeCopilot.Domain.Enums
 @inject IAppDbContext Db
 @inject ICurrentUserService CurrentUser
+@inject ImportCvFromPdfHandler ImportHandler
 
 <PageTitle>Mon CV source</PageTitle>
 
@@ -22,6 +25,67 @@
 }
 else
 {
+    <div class="card mb-4">
+        <div class="card-header">Importer depuis mon CV (PDF)</div>
+        <div class="card-body">
+            <p class="text-muted">
+                L'IA lit votre PDF et propose des faits <strong>fidèles au texte</strong> (aucune invention) :
+                relisez-les et corrigez si besoin avant de les ajouter ci-dessous.
+            </p>
+            <InputFile OnChange="OnPdfSelectedAsync" accept="application/pdf" disabled="@_importing" />
+            @if (_importing)
+            {
+                <p class="text-muted mt-2"><em>Extraction en cours (analyse IA)…</em></p>
+            }
+            @if (!string.IsNullOrEmpty(_importError))
+            {
+                <div class="alert alert-danger mt-2">@_importError</div>
+            }
+
+            @if (_reviewFacts is not null)
+            {
+                <hr />
+                <h5>Relecture avant import (@_reviewFacts.Count(f => f.Include) / @_reviewFacts.Count sélectionnés)</h5>
+                @if (!string.IsNullOrWhiteSpace(_extracted?.FullName) || !string.IsNullOrWhiteSpace(_extracted?.Email))
+                {
+                    <p class="text-muted">
+                        Coordonnées détectées : @_extracted!.FullName · @_extracted.Phone · @_extracted.Email
+                        @(_profile!.FullName == string.Empty ? "(seront utilisées pour compléter votre profil, actuellement vide)" : "")
+                    </p>
+                }
+                <table class="table table-sm align-middle">
+                    <thead><tr><th></th><th>Type</th><th>Titre</th><th>Organisation</th><th>Description</th><th>Période</th><th>Tags</th></tr></thead>
+                    <tbody>
+                        @foreach (var review in _reviewFacts)
+                        {
+                            <tr>
+                                <td><input type="checkbox" @bind="review.Include" /></td>
+                                <td style="min-width:9rem">
+                                    <select class="form-select form-select-sm" @bind="review.Type">
+                                        @foreach (var type in Enum.GetValues<CvFactType>())
+                                        {
+                                            <option value="@type">@type</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td><input class="form-control form-control-sm" @bind="review.Title" /></td>
+                                <td><input class="form-control form-control-sm" @bind="review.Organization" /></td>
+                                <td><input class="form-control form-control-sm" @bind="review.Description" /></td>
+                                <td style="min-width:11rem">
+                                    <input class="form-control form-control-sm" placeholder="yyyy-MM" @bind="review.StartDate" />
+                                    <input class="form-control form-control-sm mt-1" placeholder="yyyy-MM (vide = en cours)" @bind="review.EndDate" />
+                                </td>
+                                <td><input class="form-control form-control-sm" @bind="review.Tags" /></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <button class="btn btn-success" @onclick="ConfirmImportAsync">Valider l'import</button>
+                <button class="btn btn-outline-secondary ms-2" @onclick="CancelImport">Annuler</button>
+            }
+        </div>
+    </div>
+
     <div class="card mb-4">
         <div class="card-header">Profil candidat</div>
         <div class="card-body">
@@ -141,11 +205,30 @@ else
 }
 
 @code {
+    private const long MaxPdfSizeBytes = 10 * 1024 * 1024;
+
     private CandidateProfile? _profile;
     private List<CvFact> _facts = [];
     private CvFact _newFact = NewEmptyFact();
     private DateOnly? _newFactStart;
     private DateOnly? _newFactEnd;
+
+    private bool _importing;
+    private string? _importError;
+    private ExtractedCvContent? _extracted;
+    private List<ReviewFact>? _reviewFacts;
+
+    private class ReviewFact
+    {
+        public bool Include { get; set; } = true;
+        public CvFactType Type { get; set; }
+        public string Title { get; set; } = string.Empty;
+        public string? Organization { get; set; }
+        public string? Description { get; set; }
+        public string? StartDate { get; set; }
+        public string? EndDate { get; set; }
+        public string Tags { get; set; } = string.Empty;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -192,4 +275,127 @@ else
     }
 
     private static CvFact NewEmptyFact() => new() { UserId = string.Empty, Type = CvFactType.Experience, Title = string.Empty };
+
+    private async Task OnPdfSelectedAsync(InputFileChangeEventArgs e)
+    {
+        _importError = null;
+        _extracted = null;
+        _reviewFacts = null;
+
+        var file = e.File;
+        if (file is null)
+        {
+            return;
+        }
+
+        if (file.Size > MaxPdfSizeBytes)
+        {
+            _importError = "Le fichier dépasse la taille maximale autorisée (10 Mo).";
+            return;
+        }
+
+        _importing = true;
+        StateHasChanged();
+        try
+        {
+            await using var stream = file.OpenReadStream(MaxPdfSizeBytes);
+            _extracted = await ImportHandler.HandleAsync(stream);
+
+            _reviewFacts = _extracted.Facts.Select(f => new ReviewFact
+            {
+                Type = Enum.TryParse<CvFactType>(f.Type, ignoreCase: true, out var type) ? type : CvFactType.Experience,
+                Title = f.Title,
+                Organization = f.Organization,
+                Description = f.Description,
+                StartDate = f.StartDate,
+                EndDate = f.EndDate,
+                Tags = f.Tags
+            }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _importError = $"Échec de l'extraction : {ex.Message}";
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    private async Task ConfirmImportAsync()
+    {
+        if (_reviewFacts is null)
+        {
+            return;
+        }
+
+        var userId = CurrentUser.UserId!;
+        var selected = _reviewFacts.Where(f => f.Include && !string.IsNullOrWhiteSpace(f.Title)).ToList();
+
+        foreach (var review in selected)
+        {
+            var fact = new CvFact
+            {
+                UserId = userId,
+                Type = review.Type,
+                Title = review.Title,
+                Organization = string.IsNullOrWhiteSpace(review.Organization) ? null : review.Organization,
+                Description = string.IsNullOrWhiteSpace(review.Description) ? null : review.Description,
+                StartDate = ParseYearMonth(review.StartDate),
+                EndDate = ParseYearMonth(review.EndDate),
+                Tags = review.Tags,
+                DisplayOrder = _facts.Count(f => f.Type == review.Type)
+            };
+
+            Db.CvFacts.Add(fact);
+            _facts.Add(fact);
+        }
+
+        // Ne complète le profil que si les champs sont encore vides : ne jamais écraser une donnée déjà saisie.
+        if (_extracted is not null)
+        {
+            if (string.IsNullOrWhiteSpace(_profile!.FullName) && !string.IsNullOrWhiteSpace(_extracted.FullName))
+                _profile.FullName = _extracted.FullName!;
+            if (string.IsNullOrWhiteSpace(_profile.Phone) && !string.IsNullOrWhiteSpace(_extracted.Phone))
+                _profile.Phone = _extracted.Phone;
+            if (string.IsNullOrWhiteSpace(_profile.Email) && !string.IsNullOrWhiteSpace(_extracted.Email))
+                _profile.Email = _extracted.Email;
+            if (string.IsNullOrWhiteSpace(_profile.LinkedInUrl) && !string.IsNullOrWhiteSpace(_extracted.LinkedInUrl))
+                _profile.LinkedInUrl = _extracted.LinkedInUrl;
+            if (string.IsNullOrWhiteSpace(_profile.WebsiteUrl) && !string.IsNullOrWhiteSpace(_extracted.WebsiteUrl))
+                _profile.WebsiteUrl = _extracted.WebsiteUrl;
+            _profile.UpdatedAtUtc = DateTime.UtcNow;
+        }
+
+        await Db.SaveChangesAsync();
+
+        CancelImport();
+    }
+
+    private void CancelImport()
+    {
+        _extracted = null;
+        _reviewFacts = null;
+        _importError = null;
+    }
+
+    private static DateOnly? ParseYearMonth(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (DateOnly.TryParseExact(value, "yyyy-MM", out var ym))
+        {
+            return ym;
+        }
+
+        if (int.TryParse(value, out var year) && year is > 1900 and < 2200)
+        {
+            return new DateOnly(year, 1, 1);
+        }
+
+        return null;
+    }
 }

@@ -4,10 +4,12 @@ using Microsoft.Extensions.DependencyInjection;
 using PfeCopilot.Application.Ai;
 using PfeCopilot.Application.Applications;
 using PfeCopilot.Application.Common;
+using PfeCopilot.Application.CvImport;
 using PfeCopilot.Application.JobBoards;
 using PfeCopilot.Application.Latex;
 using PfeCopilot.Application.Security;
 using PfeCopilot.Infrastructure.Ai;
+using PfeCopilot.Infrastructure.CvImport;
 using PfeCopilot.Infrastructure.Identity;
 using PfeCopilot.Infrastructure.JobBoards;
 using PfeCopilot.Infrastructure.Latex;
@@ -46,10 +48,12 @@ public static class DependencyInjection
         services.AddScoped<IJobBoardConnector, AdzunaConnector>();
         services.AddScoped<IJobBoardConnector, JoobleConnector>();
         services.AddScoped<IOfferTextExtractor, OfferTextExtractor>();
+        services.AddScoped<IPdfTextExtractor, PdfTextExtractor>();
         services.AddSingleton<ILatexTemplateRenderer, LatexTemplateRenderer>();
         services.AddScoped<ILatexPdfCompiler, LatexPdfCompiler>();
 
         services.AddScoped<GenerateApplicationHandler>();
+        services.AddScoped<ImportCvFromPdfHandler>();
 
         return services;
     }

@@ -15,6 +15,9 @@ public class AiProviderSelectorTests
         public Task<JobRequirements> ExtractRequirementsAsync(string offerText, string apiKeyPlainText, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
+        public Task<ExtractedCvContent> ExtractCvFactsAsync(string cvText, string apiKeyPlainText, CancellationToken cancellationToken = default)
+            => throw new NotImplementedException();
+
         public Task<TailoredCvContent> GenerateTailoredCvAsync(IReadOnlyCollection<CvFact> facts, JobRequirements requirements, CandidateProfile profile, string apiKeyPlainText, CancellationToken cancellationToken = default)
             => throw new NotImplementedException();
 
