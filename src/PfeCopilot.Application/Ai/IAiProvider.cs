@@ -9,6 +9,13 @@ public interface IAiProvider
 {
     AiProviderType ProviderType { get; }
 
+    /// <summary>
+    /// Vérifie qu'une clé API est acceptée par le fournisseur (appel léger, sans coût d'inférence,
+    /// ex. liste des modèles disponibles) — utilisé à l'enregistrement d'une clé pour éviter de
+    /// découvrir une faute de frappe seulement au moment d'une vraie génération.
+    /// </summary>
+    Task<bool> ValidateApiKeyAsync(string apiKeyPlainText, CancellationToken cancellationToken = default);
+
     Task<JobRequirements> ExtractRequirementsAsync(string offerText, string apiKeyPlainText, CancellationToken cancellationToken = default);
 
     /// <summary>

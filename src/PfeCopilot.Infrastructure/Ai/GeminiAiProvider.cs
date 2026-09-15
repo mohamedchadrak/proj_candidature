@@ -14,14 +14,16 @@ public class GeminiAiProvider(IHttpClientFactory httpClientFactory, IOptions<Gem
 
     public override AiProviderType ProviderType => AiProviderType.Gemini;
 
+    public override async Task<bool> ValidateApiKeyAsync(string apiKeyPlainText, CancellationToken cancellationToken = default)
+    {
+        var client = CreateAuthenticatedClient(apiKeyPlainText);
+        using var response = await client.GetAsync("v1beta/models", cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     protected override async Task<string> SendRawAsync(string system, string userMessage, string apiKey, CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(nameof(GeminiAiProvider));
-        client.BaseAddress = new Uri(_options.BaseUrl);
-        client.DefaultRequestHeaders.Remove("x-goog-api-key");
-        // Passée en en-tête plutôt qu'en paramètre de requête pour éviter qu'elle ne se retrouve
-        // dans des logs d'accès (proxy, App Service) qui journalisent l'URL complète.
-        client.DefaultRequestHeaders.Add("x-goog-api-key", apiKey);
+        var client = CreateAuthenticatedClient(apiKey);
 
         var request = new GeminiRequest
         {
@@ -48,5 +50,16 @@ public class GeminiAiProvider(IHttpClientFactory httpClientFactory, IOptions<Gem
         }
 
         return text;
+    }
+
+    private HttpClient CreateAuthenticatedClient(string apiKey)
+    {
+        var client = httpClientFactory.CreateClient(nameof(GeminiAiProvider));
+        client.BaseAddress = new Uri(_options.BaseUrl);
+        client.DefaultRequestHeaders.Remove("x-goog-api-key");
+        // Passée en en-tête plutôt qu'en paramètre de requête pour éviter qu'elle ne se retrouve
+        // dans des logs d'accès (proxy, App Service) qui journalisent l'URL complète.
+        client.DefaultRequestHeaders.Add("x-goog-api-key", apiKey);
+        return client;
     }
 }

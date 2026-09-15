@@ -20,6 +20,8 @@ public abstract class AiProviderBase : IAiProvider
     /// <summary>Envoie un message système + utilisateur au fournisseur et retourne le texte brut de la réponse.</summary>
     protected abstract Task<string> SendRawAsync(string system, string userMessage, string apiKey, CancellationToken cancellationToken);
 
+    public abstract Task<bool> ValidateApiKeyAsync(string apiKeyPlainText, CancellationToken cancellationToken = default);
+
     public async Task<JobRequirements> ExtractRequirementsAsync(string offerText, string apiKeyPlainText, CancellationToken cancellationToken = default)
     {
         const string system = """

@@ -7,10 +7,12 @@ namespace PfeCopilot.Infrastructure.CvImport;
 /// <summary>Extraction de texte PDF via PdfPig (bibliothèque open-source, pas de dépendance externe payante).</summary>
 public class PdfTextExtractor : IPdfTextExtractor
 {
-    public Task<string> ExtractTextAsync(Stream pdfStream, CancellationToken cancellationToken = default)
+    public async Task<string> ExtractTextAsync(Stream pdfStream, CancellationToken cancellationToken = default)
     {
         using var memory = new MemoryStream();
-        pdfStream.CopyTo(memory);
+        // Le stream fourni par Blazor Server (IBrowserFile.OpenReadStream) n'autorise pas les
+        // lectures synchrones : Stream.CopyTo lève "Synchronous reads are not supported.".
+        await pdfStream.CopyToAsync(memory, cancellationToken);
         memory.Position = 0;
 
         using var document = PdfDocument.Open(memory);
@@ -22,6 +24,6 @@ public class PdfTextExtractor : IPdfTextExtractor
             sb.AppendLine(page.Text);
         }
 
-        return Task.FromResult(sb.ToString());
+        return sb.ToString();
     }
 }

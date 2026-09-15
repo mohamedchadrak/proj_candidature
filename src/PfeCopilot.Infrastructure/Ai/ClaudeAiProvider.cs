@@ -15,14 +15,16 @@ public class ClaudeAiProvider(IHttpClientFactory httpClientFactory, IOptions<Ant
 
     public override AiProviderType ProviderType => AiProviderType.Claude;
 
+    public override async Task<bool> ValidateApiKeyAsync(string apiKeyPlainText, CancellationToken cancellationToken = default)
+    {
+        var client = CreateAuthenticatedClient(apiKeyPlainText);
+        using var response = await client.GetAsync("v1/models", cancellationToken);
+        return response.IsSuccessStatusCode;
+    }
+
     protected override async Task<string> SendRawAsync(string system, string userMessage, string apiKey, CancellationToken cancellationToken)
     {
-        var client = httpClientFactory.CreateClient(nameof(ClaudeAiProvider));
-        client.BaseAddress = new Uri(_options.BaseUrl);
-        client.DefaultRequestHeaders.Remove("x-api-key");
-        client.DefaultRequestHeaders.Add("x-api-key", apiKey);
-        client.DefaultRequestHeaders.Remove("anthropic-version");
-        client.DefaultRequestHeaders.Add("anthropic-version", _options.ApiVersion);
+        var client = CreateAuthenticatedClient(apiKey);
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
         var request = new AnthropicRequest
@@ -44,5 +46,16 @@ public class ClaudeAiProvider(IHttpClientFactory httpClientFactory, IOptions<Ant
 
         return body.Content.FirstOrDefault(c => c.Type == "text")?.Text
             ?? throw new InvalidOperationException("Aucun contenu texte dans la réponse Anthropic.");
+    }
+
+    private HttpClient CreateAuthenticatedClient(string apiKey)
+    {
+        var client = httpClientFactory.CreateClient(nameof(ClaudeAiProvider));
+        client.BaseAddress = new Uri(_options.BaseUrl);
+        client.DefaultRequestHeaders.Remove("x-api-key");
+        client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        client.DefaultRequestHeaders.Remove("anthropic-version");
+        client.DefaultRequestHeaders.Add("anthropic-version", _options.ApiVersion);
+        return client;
     }
 }

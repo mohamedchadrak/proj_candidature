@@ -3,6 +3,7 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
 @using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Ai
 @using PfeCopilot.Application.Common
 @using PfeCopilot.Application.Security
 @using PfeCopilot.Domain.Entities
@@ -10,6 +11,7 @@
 @inject IAppDbContext Db
 @inject ICurrentUserService CurrentUser
 @inject IApiKeyProtector Protector
+@inject IEnumerable<IAiProvider> AiProviders
 
 <PageTitle>Clés API</PageTitle>
 
@@ -38,13 +40,19 @@
                     <InputText type="password" class="form-control" @bind-Value="_form.PlainTextKey" placeholder="sk-ant-..." />
                 </div>
                 <div class="col-md-2">
-                    <button type="submit" class="btn btn-primary w-100">Enregistrer</button>
+                    <button type="submit" class="btn btn-primary w-100" disabled="@_validating">
+                        @(_validating ? "Vérification..." : "Enregistrer")
+                    </button>
                 </div>
             </div>
         </EditForm>
         @if (!string.IsNullOrEmpty(_message))
         {
             <div class="alert alert-success mt-3">@_message</div>
+        }
+        @if (!string.IsNullOrEmpty(_error))
+        {
+            <div class="alert alert-danger mt-3">@_error</div>
         }
     </div>
 </div>
@@ -74,6 +82,8 @@
     private List<ApiKeyConfig> _keys = [];
     private NewKeyForm _form = new();
     private string? _message;
+    private string? _error;
+    private bool _validating;
 
     protected override async Task OnInitializedAsync()
     {
@@ -88,10 +98,40 @@
 
     private async Task SaveKeyAsync()
     {
+        _message = null;
+        _error = null;
+
         if (string.IsNullOrWhiteSpace(_form.PlainTextKey))
         {
             return;
         }
+
+        var matchingProvider = AiProviders.FirstOrDefault(p => p.ProviderType == _form.Provider);
+        if (matchingProvider is not null)
+        {
+            _validating = true;
+            StateHasChanged();
+            try
+            {
+                var isValid = await matchingProvider.ValidateApiKeyAsync(_form.PlainTextKey);
+                if (!isValid)
+                {
+                    _error = $"Cette clé {_form.Provider} a été refusée par le fournisseur — vérifiez qu'elle est correcte, active et non expirée.";
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _error = $"Impossible de vérifier cette clé auprès de {_form.Provider} : {ex.Message}";
+                return;
+            }
+            finally
+            {
+                _validating = false;
+            }
+        }
+        // Si aucun IAiProvider n'implémente ce fournisseur (ex. OpenAi, pas encore intégré),
+        // on enregistre sans vérification plutôt que de bloquer l'utilisateur.
 
         var userId = CurrentUser.UserId!;
 
@@ -113,7 +153,7 @@
 
         await Db.SaveChangesAsync();
 
-        _message = $"Clé {_form.Provider} enregistrée.";
+        _message = $"Clé {_form.Provider} vérifiée et enregistrée.";
         _form = new NewKeyForm();
         await ReloadAsync();
     }
