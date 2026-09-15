@@ -17,7 +17,20 @@
 <body>
     <Routes />
     <ReconnectModal />
-    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
+    <script>
+        // Tolérance accrue aux coupures de circuit sur le plan App Service gratuit (cold start
+        // après veille, ralentissements CPU occasionnels) : plus de tentatives, plus espacées,
+        // que les valeurs par défaut, pour éviter un "Rejoin failed" prématuré.
+        Blazor.start({
+            circuit: {
+                reconnectionOptions: {
+                    maxRetries: 40,
+                    retryIntervalMilliseconds: 3000
+                }
+            }
+        });
+    </script>
     <script src="@Assets["Components/Account/Shared/PasskeySubmit.razor.js"]" type="module"></script>
 </body>
 

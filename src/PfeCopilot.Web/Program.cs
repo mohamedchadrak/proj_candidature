@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Server;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using PfeCopilot.Application.Common;
 using PfeCopilot.Web.Components;
@@ -14,6 +16,22 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container.
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+// Tolérance accrue aux coupures de circuit : l'App Service tourne sur un plan gratuit (F1) qui
+// n'a pas d'"Always On" et peut se mettre en veille après inactivité — le réveil (cold start) et
+// les ralentissements CPU occasionnels du plan partagé prennent plus de temps que les délais par
+// défaut de SignalR/Blazor Server, ce qui déclenche des déconnexions ("Rejoin failed") évitables.
+builder.Services.Configure<CircuitOptions>(options =>
+{
+    options.DisconnectedCircuitMaxRetained = 50;
+    options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(3);
+    options.JSInteropDefaultCallTimeout = TimeSpan.FromSeconds(60);
+});
+builder.Services.Configure<HubOptions>(options =>
+{
+    options.ClientTimeoutInterval = TimeSpan.FromSeconds(60);
+    options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+});
 
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddScoped<IdentityRedirectManager>();
