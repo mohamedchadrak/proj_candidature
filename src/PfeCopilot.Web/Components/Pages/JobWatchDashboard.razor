@@ -1,0 +1,120 @@
+@page "/veille"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Common
+@using PfeCopilot.Domain.Entities
+@inject IAppDbContext Db
+@inject ICurrentUserService CurrentUser
+
+<PageTitle>Veille emploi</PageTitle>
+
+<h1>Veille emploi</h1>
+<p class="text-muted">
+    Le worker de veille interroge automatiquement les API officielles (France Travail, Adzuna) pour
+    chaque recherche active et calcule un score de pertinence par rapport à votre CV — sans scraper
+    de sites tiers (LinkedIn/Indeed), pour rester dans les règles de ces plateformes.
+</p>
+
+<div class="card mb-4">
+    <div class="card-header">Nouvelle recherche enregistrée</div>
+    <div class="card-body">
+        <EditForm Model="_newSearch" OnValidSubmit="AddSearchAsync">
+            <div class="row g-3">
+                <div class="col-md-3">
+                    <label class="form-label">Libellé</label>
+                    <InputText class="form-control" @bind-Value="_newSearch.Label" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">Mots-clés (séparés par virgules)</label>
+                    <InputText class="form-control" @bind-Value="_newSearch.Keywords" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Localisation</label>
+                    <InputText class="form-control" @bind-Value="_newSearch.Location" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary w-100">Ajouter</button>
+                </div>
+            </div>
+        </EditForm>
+    </div>
+</div>
+
+<h5>Recherches actives (@_searches.Count(s => s.IsActive))</h5>
+<table class="table table-sm mb-4">
+    <thead><tr><th>Libellé</th><th>Mots-clés</th><th>Localisation</th><th>Dernière exécution</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var s in _searches)
+        {
+            <tr class="@(s.IsActive ? "" : "text-muted")">
+                <td>@s.Label</td>
+                <td>@s.Keywords</td>
+                <td>@s.Location</td>
+                <td>@(s.LastRunAtUtc?.ToLocalTime().ToString() ?? "jamais")</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-secondary" @onclick="() => ToggleSearchAsync(s)">
+                        @(s.IsActive ? "Désactiver" : "Réactiver")
+                    </button>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+<h5>Offres détectées (@_offers.Count)</h5>
+<table class="table">
+    <thead><tr><th>Score</th><th>Titre</th><th>Entreprise</th><th>Lieu</th><th>Source</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var o in _offers.OrderByDescending(o => o.MatchScore))
+        {
+            <tr>
+                <td><span class="badge @(o.MatchScore >= 50 ? "bg-success" : "bg-secondary")">@o.MatchScore %</span></td>
+                <td>@o.Title</td>
+                <td>@o.Company</td>
+                <td>@o.Location</td>
+                <td>@o.Source</td>
+                <td>
+                    <a class="btn btn-sm btn-primary" href="@($"/offres/nouvelle?offerId={o.Id}")">Générer candidature</a>
+                    @if (!string.IsNullOrEmpty(o.Url))
+                    {
+                        <a class="btn btn-sm btn-outline-secondary" href="@o.Url" target="_blank">Voir l'offre</a>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<SavedSearch> _searches = [];
+    private List<JobOffer> _offers = [];
+    private SavedSearch _newSearch = new() { UserId = string.Empty, Label = string.Empty, Keywords = string.Empty };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        var userId = CurrentUser.UserId!;
+        _searches = await Db.SavedSearches.Where(s => s.UserId == userId).ToListAsync();
+        _offers = await Db.JobOffers.Where(o => o.UserId == userId).OrderByDescending(o => o.FetchedAtUtc).Take(100).ToListAsync();
+    }
+
+    private async Task AddSearchAsync()
+    {
+        _newSearch.UserId = CurrentUser.UserId!;
+        Db.SavedSearches.Add(_newSearch);
+        await Db.SaveChangesAsync();
+        _newSearch = new SavedSearch { UserId = string.Empty, Label = string.Empty, Keywords = string.Empty };
+        await ReloadAsync();
+    }
+
+    private async Task ToggleSearchAsync(SavedSearch search)
+    {
+        search.IsActive = !search.IsActive;
+        await Db.SaveChangesAsync();
+    }
+}

@@ -1,0 +1,106 @@
+@page "/candidatures/{Id:guid}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Common
+@using PfeCopilot.Domain.Entities
+@using PfeCopilot.Domain.Enums
+@inject IAppDbContext Db
+@inject ICurrentUserService CurrentUser
+
+<PageTitle>Candidature</PageTitle>
+
+@if (_application is null)
+{
+    <p><em>Chargement…</em></p>
+}
+else
+{
+    <h1>Candidature</h1>
+
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <label class="form-label">Statut</label>
+            <InputSelect class="form-select" Value="_application.Status" ValueChanged="@((JobApplicationStatus s) => OnStatusChangedAsync(s))" ValueExpression="() => _application.Status">
+                @foreach (var status in Enum.GetValues<JobApplicationStatus>())
+                {
+                    <option value="@status">@status</option>
+                }
+            </InputSelect>
+        </div>
+        <div class="col-md-4">
+            <label class="form-label">Score ATS</label>
+            <p class="form-control-plaintext"><strong>@_application.AtsScore %</strong></p>
+        </div>
+        <div class="col-md-4 d-flex align-items-end gap-2">
+            <a class="btn btn-outline-primary" href="@($"/api/applications/{Id}/tex")">Télécharger .tex</a>
+            <a class="btn btn-primary" href="@($"/api/applications/{Id}/pdf")" target="_blank">Télécharger PDF</a>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-7">
+            <label class="form-label">Source LaTeX (CV + lettre de motivation) — éditable</label>
+            <textarea class="form-control" style="font-family: monospace; font-size: 0.85rem;" rows="28"
+                      @bind="_application.LatexSource"></textarea>
+        </div>
+        <div class="col-md-5">
+            <label class="form-label">Lettre de motivation (texte brut, réinjecté au prochain enregistrement du LaTeX)</label>
+            <textarea class="form-control" rows="28" @bind="_application.CoverLetterText"></textarea>
+        </div>
+    </div>
+
+    <button class="btn btn-success mt-3" @onclick="SaveAsync" disabled="@_saving">
+        @(_saving ? "Enregistrement..." : "Enregistrer cette version")
+    </button>
+    @if (_saved)
+    {
+        <span class="text-success ms-2">Enregistré.</span>
+    }
+}
+
+@code {
+    [Parameter] public Guid Id { get; set; }
+
+    private JobApplication? _application;
+    private bool _saving;
+    private bool _saved;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _application = await Db.JobApplications.SingleOrDefaultAsync(a => a.Id == Id);
+    }
+
+    private async Task OnStatusChangedAsync(JobApplicationStatus status)
+    {
+        _application!.Status = status;
+        _application.UpdatedAtUtc = DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+    }
+
+    private async Task SaveAsync()
+    {
+        _saving = true;
+        _saved = false;
+        try
+        {
+            _application!.UpdatedAtUtc = DateTime.UtcNow;
+
+            Db.JobApplicationVersions.Add(new JobApplicationVersion
+            {
+                UserId = CurrentUser.UserId!,
+                JobApplicationId = _application.Id,
+                LatexSource = _application.LatexSource,
+                CoverLetterText = _application.CoverLetterText,
+                EditSummary = "Modification manuelle"
+            });
+
+            await Db.SaveChangesAsync();
+            _saved = true;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

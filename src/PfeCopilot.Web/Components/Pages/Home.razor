@@ -1,0 +1,36 @@
+@page "/"
+
+<PageTitle>PFE Copilot</PageTitle>
+
+<div class="px-4 py-3">
+    <h1>PFE Copilot</h1>
+    <p class="lead">
+        Générez des CV et lettres de motivation adaptés à chaque offre, sans jamais inventer une
+        ligne, et restez à l'affût des stages PFE en Intelligence Artificielle / Machine Learning.
+    </p>
+
+    <AuthorizeView>
+        <Authorized>
+            <a class="btn btn-primary btn-lg me-2" href="offres/nouvelle">Générer une candidature</a>
+            <a class="btn btn-outline-secondary btn-lg" href="cv-source">Compléter mon CV source</a>
+        </Authorized>
+        <NotAuthorized>
+            <a class="btn btn-primary btn-lg" href="Account/Register">Créer un compte</a>
+        </NotAuthorized>
+    </AuthorizeView>
+
+    <div class="row mt-5 g-4">
+        <div class="col-md-4">
+            <h5>1. Mon CV source</h5>
+            <p>Vos expériences, projets et compétences réels, décomposés en faits vérifiables.</p>
+        </div>
+        <div class="col-md-4">
+            <h5>2. Génération adaptée</h5>
+            <p>L'IA reformule et sélectionne vos faits pour coller à l'offre, jamais n'en invente.</p>
+        </div>
+        <div class="col-md-4">
+            <h5>3. Veille automatique</h5>
+            <p>Les nouvelles offres IA/ML pertinentes remontent seules dans votre tableau de bord.</p>
+        </div>
+    </div>
+</div>

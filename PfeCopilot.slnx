@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PfeCopilot.Application/PfeCopilot.Application.csproj" />
+    <Project Path="src/PfeCopilot.Domain/PfeCopilot.Domain.csproj" />
+    <Project Path="src/PfeCopilot.Infrastructure/PfeCopilot.Infrastructure.csproj" />
+    <Project Path="src/PfeCopilot.Web/PfeCopilot.Web.csproj" />
+    <Project Path="src/PfeCopilot.Worker/PfeCopilot.Worker.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PfeCopilot.Tests/PfeCopilot.Tests.csproj" />
+  </Folder>
+</Solution>

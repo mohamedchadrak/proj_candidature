@@ -55,3 +55,20 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+## Visual Studio
+.vs/
+
+## Trousseau Data Protection local (jamais versionné — contient la clé de chiffrement des clés API)
+App_Data/
+
+## Secrets locaux
+appsettings.*.local.json
+*.pfx
+
+## Publication / artefacts de déploiement
+deploy/.publish/
+
+## OS
+Thumbs.db
+.DS_Store

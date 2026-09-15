@@ -1,0 +1,195 @@
+@page "/cv-source"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Common
+@using PfeCopilot.Domain.Entities
+@using PfeCopilot.Domain.Enums
+@inject IAppDbContext Db
+@inject ICurrentUserService CurrentUser
+
+<PageTitle>Mon CV source</PageTitle>
+
+<h1>Mon CV source</h1>
+<p class="text-muted">
+    C'est la seule matière première que l'IA a le droit d'utiliser pour générer vos CV et lettres de
+    motivation adaptés : elle pourra reformuler, sélectionner ou réordonner ces faits, jamais en inventer.
+</p>
+
+@if (_profile is null)
+{
+    <p><em>Chargement…</em></p>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-header">Profil candidat</div>
+        <div class="card-body">
+            <EditForm Model="_profile" OnValidSubmit="SaveProfileAsync">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Nom complet</label>
+                        <InputText class="form-control" @bind-Value="_profile.FullName" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Spécialité ciblée</label>
+                        <InputText class="form-control" @bind-Value="_profile.TargetedSpecialty" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Téléphone</label>
+                        <InputText class="form-control" @bind-Value="_profile.Phone" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Email</label>
+                        <InputText class="form-control" @bind-Value="_profile.Email" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">LinkedIn</label>
+                        <InputText class="form-control" @bind-Value="_profile.LinkedInUrl" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Site web</label>
+                        <InputText class="form-control" @bind-Value="_profile.WebsiteUrl" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Fournisseur IA préféré</label>
+                        <InputSelect class="form-select" @bind-Value="_profile.PreferredAiProvider">
+                            @foreach (var provider in Enum.GetValues<AiProviderType>())
+                            {
+                                <option value="@provider">@provider</option>
+                            }
+                        </InputSelect>
+                        <div class="form-text">
+                            Utilisé si vous avez plusieurs clés API actives. Sinon, la clé active configurée
+                            est utilisée automatiquement — voir <a href="/parametres/cles-api">Clés API</a>.
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Mots-clés de veille par défaut (séparés par des virgules)</label>
+                        <InputText class="form-control" @bind-Value="_profile.DefaultWatchKeywords" />
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-3">Enregistrer le profil</button>
+            </EditForm>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-header">Ajouter un fait de CV</div>
+        <div class="card-body">
+            <EditForm Model="_newFact" OnValidSubmit="AddFactAsync">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">Type</label>
+                        <InputSelect class="form-select" @bind-Value="_newFact.Type">
+                            @foreach (var type in Enum.GetValues<CvFactType>())
+                            {
+                                <option value="@type">@type</option>
+                            }
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Titre</label>
+                        <InputText class="form-control" @bind-Value="_newFact.Title" />
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label">Organisation</label>
+                        <InputText class="form-control" @bind-Value="_newFact.Organization" />
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Description (factuelle, vérifiable)</label>
+                        <InputTextArea class="form-control" rows="2" @bind-Value="_newFact.Description" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Début</label>
+                        <InputDate class="form-control" @bind-Value="_newFactStart" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Fin (vide = en cours)</label>
+                        <InputDate class="form-control" @bind-Value="_newFactEnd" />
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Tags (séparés par des virgules)</label>
+                        <InputText class="form-control" @bind-Value="_newFact.Tags" />
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary mt-3">Ajouter ce fait</button>
+            </EditForm>
+        </div>
+    </div>
+
+    <h2>Faits enregistrés (@_facts.Count)</h2>
+    @foreach (var group in _facts.GroupBy(f => f.Type))
+    {
+        <h5 class="mt-3">@group.Key</h5>
+        <table class="table table-sm">
+            <thead><tr><th>Titre</th><th>Organisation</th><th>Période</th><th>Tags</th><th></th></tr></thead>
+            <tbody>
+                @foreach (var fact in group.OrderBy(f => f.DisplayOrder))
+                {
+                    <tr>
+                        <td>@fact.Title</td>
+                        <td>@fact.Organization</td>
+                        <td>@fact.StartDate?.ToString("MM/yyyy") - @(fact.EndDate?.ToString("MM/yyyy") ?? "présent")</td>
+                        <td>@fact.Tags</td>
+                        <td><button class="btn btn-sm btn-outline-danger" @onclick="() => DeleteFactAsync(fact)">Supprimer</button></td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+}
+
+@code {
+    private CandidateProfile? _profile;
+    private List<CvFact> _facts = [];
+    private CvFact _newFact = NewEmptyFact();
+    private DateOnly? _newFactStart;
+    private DateOnly? _newFactEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var userId = CurrentUser.UserId!;
+
+        _profile = await Db.CandidateProfiles.SingleOrDefaultAsync(p => p.UserId == userId);
+        if (_profile is null)
+        {
+            _profile = new CandidateProfile { UserId = userId, FullName = string.Empty };
+            Db.CandidateProfiles.Add(_profile);
+            await Db.SaveChangesAsync();
+        }
+
+        _facts = await Db.CvFacts.Where(f => f.UserId == userId).ToListAsync();
+    }
+
+    private async Task SaveProfileAsync()
+    {
+        _profile!.UpdatedAtUtc = DateTime.UtcNow;
+        await Db.SaveChangesAsync();
+    }
+
+    private async Task AddFactAsync()
+    {
+        _newFact.UserId = CurrentUser.UserId!;
+        _newFact.StartDate = _newFactStart;
+        _newFact.EndDate = _newFactEnd;
+        _newFact.DisplayOrder = _facts.Count(f => f.Type == _newFact.Type);
+
+        Db.CvFacts.Add(_newFact);
+        await Db.SaveChangesAsync();
+
+        _facts.Add(_newFact);
+        _newFact = NewEmptyFact();
+        _newFactStart = null;
+        _newFactEnd = null;
+    }
+
+    private async Task DeleteFactAsync(CvFact fact)
+    {
+        Db.CvFacts.Remove(fact);
+        await Db.SaveChangesAsync();
+        _facts.Remove(fact);
+    }
+
+    private static CvFact NewEmptyFact() => new() { UserId = string.Empty, Type = CvFactType.Experience, Title = string.Empty };
+}

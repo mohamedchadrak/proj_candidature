@@ -1,0 +1,161 @@
+@page "/offres/nouvelle"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Applications
+@using PfeCopilot.Application.Common
+@using PfeCopilot.Application.JobBoards
+@inject GenerateApplicationHandler Handler
+@inject IOfferTextExtractor OfferTextExtractor
+@inject IAppDbContext Db
+@inject NavigationManager Nav
+
+<PageTitle>Nouvelle candidature</PageTitle>
+
+<h1>Générer une candidature adaptée</h1>
+<p class="text-muted">
+    Collez le lien de l'offre ou son texte directement. Le CV et la lettre de motivation générés ne
+    s'appuieront que sur les faits enregistrés dans <a href="/cv-source">Mon CV source</a> — jamais d'invention.
+</p>
+
+<div class="mb-3">
+    <label class="form-label">Lien de l'offre (optionnel)</label>
+    <div class="input-group">
+        <input class="form-control" @bind="_offerUrl" placeholder="https://..." />
+        <button class="btn btn-outline-secondary" @onclick="FetchFromUrlAsync" disabled="@_fetching">
+            @(_fetching ? "Récupération..." : "Récupérer le texte")
+        </button>
+    </div>
+</div>
+
+<div class="mb-3">
+    <label class="form-label">Texte de l'offre</label>
+    <textarea class="form-control" rows="10" @bind="_offerText"></textarea>
+</div>
+
+<div class="row g-3 mb-3">
+    <div class="col-md-6">
+        <label class="form-label">Entreprise (optionnel)</label>
+        <input class="form-control" @bind="_companyName" />
+    </div>
+    <div class="col-md-6">
+        <label class="form-label">Intitulé du poste (optionnel)</label>
+        <input class="form-control" @bind="_jobTitle" />
+    </div>
+</div>
+
+<button class="btn btn-primary" @onclick="GenerateAsync" disabled="@(_generating || string.IsNullOrWhiteSpace(_offerText))">
+    @(_generating ? "Génération en cours..." : "Générer le CV et la lettre de motivation")
+</button>
+
+@if (!string.IsNullOrEmpty(_error))
+{
+    <div class="alert alert-danger mt-3">@_error</div>
+}
+
+@if (_result is not null)
+{
+    <div class="alert alert-info mt-4">
+        <h5>Résultat</h5>
+        <p>Score de correspondance CV/offre : <strong>@_result.MatchResult.ScorePercent %</strong></p>
+        <p>Score ATS estimé : <strong>@_result.AtsResult.ScorePercent %</strong></p>
+
+        @if (_result.TraceabilityIssues.Count > 0)
+        {
+            <p class="mb-1"><strong>Points à relire avant envoi (traçabilité) :</strong></p>
+            <ul>
+                @foreach (var issue in _result.TraceabilityIssues)
+                {
+                    <li class="@(issue.Severity == TraceabilityIssueSeverity.Error ? "text-danger" : "text-warning")">
+                        [@issue.Severity] @issue.Location — @issue.Message
+                    </li>
+                }
+            </ul>
+        }
+        else
+        {
+            <p class="text-success">Toutes les phrases générées sont traçables aux faits de votre CV.</p>
+        }
+
+        <a class="btn btn-success mt-2" href="@($"/candidatures/{_result.Application.Id}")">Ouvrir dans l'éditeur</a>
+    </div>
+}
+
+@code {
+    [Parameter]
+    [SupplyParameterFromQuery(Name = "offerId")]
+    public Guid? OfferId { get; set; }
+
+    private string _offerUrl = string.Empty;
+    private string _offerText = string.Empty;
+    private string _companyName = string.Empty;
+    private string _jobTitle = string.Empty;
+    private bool _fetching;
+    private bool _generating;
+    private string? _error;
+    private GenerateApplicationResult? _result;
+    private Guid? _preloadedOfferId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (OfferId is null)
+        {
+            return;
+        }
+
+        var offer = await Db.JobOffers.SingleOrDefaultAsync(o => o.Id == OfferId);
+        if (offer is null)
+        {
+            return;
+        }
+
+        _preloadedOfferId = offer.Id;
+        _offerUrl = offer.Url ?? string.Empty;
+        _offerText = offer.RawDescription;
+        _companyName = offer.Company ?? string.Empty;
+        _jobTitle = offer.Title;
+    }
+
+    private async Task FetchFromUrlAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_offerUrl))
+        {
+            return;
+        }
+
+        _fetching = true;
+        _error = null;
+        try
+        {
+            _offerText = await OfferTextExtractor.ExtractFromUrlAsync(_offerUrl);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Impossible de récupérer le texte de l'offre : {ex.Message}";
+        }
+        finally
+        {
+            _fetching = false;
+        }
+    }
+
+    private async Task GenerateAsync()
+    {
+        _generating = true;
+        _error = null;
+        _result = null;
+        try
+        {
+            var request = new GenerateApplicationRequest(_offerText, _preloadedOfferId, _companyName, _jobTitle);
+            _result = await Handler.HandleAsync(request);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Échec de la génération : {ex.Message}";
+        }
+        finally
+        {
+            _generating = false;
+        }
+    }
+}

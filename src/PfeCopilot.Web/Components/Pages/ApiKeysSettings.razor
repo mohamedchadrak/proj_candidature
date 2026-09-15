@@ -1,0 +1,132 @@
+@page "/parametres/cles-api"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using Microsoft.EntityFrameworkCore
+@using PfeCopilot.Application.Common
+@using PfeCopilot.Application.Security
+@using PfeCopilot.Domain.Entities
+@using PfeCopilot.Domain.Enums
+@inject IAppDbContext Db
+@inject ICurrentUserService CurrentUser
+@inject IApiKeyProtector Protector
+
+<PageTitle>Clés API</PageTitle>
+
+<h1>Mes clés API</h1>
+<p class="text-muted">
+    Chaque compte apporte sa propre clé (modèle "bring your own key") : elle est chiffrée avant
+    stockage et n'est jamais visible en clair une fois enregistrée, ni journalisée.
+</p>
+
+<div class="card mb-4">
+    <div class="card-header">Ajouter / remplacer une clé</div>
+    <div class="card-body">
+        <EditForm Model="_form" OnValidSubmit="SaveKeyAsync">
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label">Fournisseur</label>
+                    <InputSelect class="form-select" @bind-Value="_form.Provider">
+                        @foreach (var p in Enum.GetValues<AiProviderType>())
+                        {
+                            <option value="@p">@p</option>
+                        }
+                    </InputSelect>
+                </div>
+                <div class="col-md-7">
+                    <label class="form-label">Clé API</label>
+                    <InputText type="password" class="form-control" @bind-Value="_form.PlainTextKey" placeholder="sk-ant-..." />
+                </div>
+                <div class="col-md-2">
+                    <button type="submit" class="btn btn-primary w-100">Enregistrer</button>
+                </div>
+            </div>
+        </EditForm>
+        @if (!string.IsNullOrEmpty(_message))
+        {
+            <div class="alert alert-success mt-3">@_message</div>
+        }
+    </div>
+</div>
+
+<table class="table">
+    <thead><tr><th>Fournisseur</th><th>Statut</th><th>Créée le</th><th>Dernière utilisation</th><th></th></tr></thead>
+    <tbody>
+        @foreach (var key in _keys)
+        {
+            <tr>
+                <td>@key.Provider</td>
+                <td>@(key.IsActive ? "Active" : "Désactivée")</td>
+                <td>@key.CreatedAtUtc.ToLocalTime()</td>
+                <td>@(key.LastUsedAtUtc?.ToLocalTime().ToString() ?? "jamais")</td>
+                <td>
+                    @if (key.IsActive)
+                    {
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => DeactivateAsync(key)">Désactiver</button>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<ApiKeyConfig> _keys = [];
+    private NewKeyForm _form = new();
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+    }
+
+    private async Task ReloadAsync()
+    {
+        var userId = CurrentUser.UserId!;
+        _keys = await Db.ApiKeyConfigs.Where(k => k.UserId == userId).OrderByDescending(k => k.CreatedAtUtc).ToListAsync();
+    }
+
+    private async Task SaveKeyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_form.PlainTextKey))
+        {
+            return;
+        }
+
+        var userId = CurrentUser.UserId!;
+
+        // Une seule clé active à la fois par fournisseur, pour éviter toute ambiguïté sur celle utilisée.
+        var existingActive = await Db.ApiKeyConfigs
+            .Where(k => k.UserId == userId && k.Provider == _form.Provider && k.IsActive)
+            .ToListAsync();
+        foreach (var old in existingActive)
+        {
+            old.IsActive = false;
+        }
+
+        Db.ApiKeyConfigs.Add(new ApiKeyConfig
+        {
+            UserId = userId,
+            Provider = _form.Provider,
+            CipherText = Protector.Protect(_form.PlainTextKey)
+        });
+
+        await Db.SaveChangesAsync();
+
+        _message = $"Clé {_form.Provider} enregistrée.";
+        _form = new NewKeyForm();
+        await ReloadAsync();
+    }
+
+    private async Task DeactivateAsync(ApiKeyConfig key)
+    {
+        key.IsActive = false;
+        await Db.SaveChangesAsync();
+        await ReloadAsync();
+    }
+
+    private class NewKeyForm
+    {
+        public AiProviderType Provider { get; set; } = AiProviderType.Claude;
+        public string PlainTextKey { get; set; } = string.Empty;
+    }
+}
