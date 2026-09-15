@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using PfeCopilot.Domain.Enums;
 
@@ -36,13 +37,30 @@ public class ClaudeAiProvider(IHttpClientFactory httpClientFactory, IOptions<Ant
         };
 
         using var httpResponse = await client.PostAsJsonAsync("v1/messages", request, JsonOptions, cancellationToken);
-        var body = await httpResponse.Content.ReadFromJsonAsync<AnthropicResponse>(JsonOptions, cancellationToken)
-            ?? throw new InvalidOperationException("Réponse vide de l'API Anthropic.");
 
         if (!httpResponse.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Erreur API Anthropic ({httpResponse.StatusCode}) : {body.Error?.Message ?? "inconnue"}");
+            string? errorMessage = null;
+            try
+            {
+                var errorBody = await httpResponse.Content.ReadFromJsonAsync<AnthropicResponse>(JsonOptions, cancellationToken);
+                errorMessage = errorBody?.Error?.Message;
+            }
+            catch (JsonException)
+            {
+                // Une panne en amont (proxy, passerelle) peut renvoyer du texte/HTML au lieu de JSON.
+            }
+
+            var message = $"Erreur API Anthropic ({httpResponse.StatusCode}) : {errorMessage ?? "inconnue"}";
+            if (IsTransientStatus(httpResponse.StatusCode))
+            {
+                throw new AiProviderTransientException(message);
+            }
+            throw new InvalidOperationException(message);
         }
+
+        var body = await httpResponse.Content.ReadFromJsonAsync<AnthropicResponse>(JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Réponse vide de l'API Anthropic.");
 
         return body.Content.FirstOrDefault(c => c.Type == "text")?.Text
             ?? throw new InvalidOperationException("Aucun contenu texte dans la réponse Anthropic.");

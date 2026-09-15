@@ -114,7 +114,7 @@ public abstract class AiProviderBase : IAiProvider
             """;
 
         var userPrompt = BuildFactsAndRequirementsPrompt(facts, requirements) + $"\n\nTexte de l'offre :\n{offerText}";
-        return await SendRawAsync(system, userPrompt, apiKeyPlainText, cancellationToken);
+        return await SendRawWithRetryAsync(system, userPrompt, apiKeyPlainText, cancellationToken);
     }
 
     private static string BuildFactsAndRequirementsPrompt(IReadOnlyCollection<CvFact> facts, JobRequirements requirements)
@@ -137,9 +137,40 @@ public abstract class AiProviderBase : IAiProvider
 
     private async Task<string> SendAndExtractJsonAsync(string system, string userMessage, string apiKey, CancellationToken cancellationToken)
     {
-        var text = await SendRawAsync(system, userMessage, apiKey, cancellationToken);
+        var text = await SendRawWithRetryAsync(system, userMessage, apiKey, cancellationToken);
         return ExtractJsonPayload(text);
     }
+
+    private static readonly TimeSpan[] TransientRetryDelays =
+    [
+        TimeSpan.FromSeconds(1),
+        TimeSpan.FromSeconds(3),
+        TimeSpan.FromSeconds(8)
+    ];
+
+    /// <summary>Réessaie avec un délai croissant sur une <see cref="AiProviderTransientException"/> (surcharge, rate limit).</summary>
+    private async Task<string> SendRawWithRetryAsync(string system, string userMessage, string apiKey, CancellationToken cancellationToken)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                return await SendRawAsync(system, userMessage, apiKey, cancellationToken);
+            }
+            catch (AiProviderTransientException) when (attempt < TransientRetryDelays.Length)
+            {
+                await Task.Delay(TransientRetryDelays[attempt], cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>Codes HTTP considérés comme des indisponibilités temporaires du fournisseur, à retenter.</summary>
+    protected static bool IsTransientStatus(System.Net.HttpStatusCode statusCode) => statusCode is
+        System.Net.HttpStatusCode.TooManyRequests or
+        System.Net.HttpStatusCode.InternalServerError or
+        System.Net.HttpStatusCode.BadGateway or
+        System.Net.HttpStatusCode.ServiceUnavailable or
+        System.Net.HttpStatusCode.GatewayTimeout;
 
     /// <summary>Le modèle répond parfois avec du texte autour du JSON malgré la consigne : on isole l'objet JSON.</summary>
     private static string ExtractJsonPayload(string text)

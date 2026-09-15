@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.Extensions.Options;
 using PfeCopilot.Domain.Enums;
 
@@ -34,13 +35,30 @@ public class GeminiAiProvider(IHttpClientFactory httpClientFactory, IOptions<Gem
 
         var url = $"v1beta/models/{_options.Model}:generateContent";
         using var httpResponse = await client.PostAsJsonAsync(url, request, JsonOptions, cancellationToken);
-        var body = await httpResponse.Content.ReadFromJsonAsync<GeminiResponse>(JsonOptions, cancellationToken)
-            ?? throw new InvalidOperationException("Réponse vide de l'API Gemini.");
 
         if (!httpResponse.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"Erreur API Gemini ({httpResponse.StatusCode}) : {body.Error?.Message ?? "inconnue"}");
+            string? errorMessage = null;
+            try
+            {
+                var errorBody = await httpResponse.Content.ReadFromJsonAsync<GeminiResponse>(JsonOptions, cancellationToken);
+                errorMessage = errorBody?.Error?.Message;
+            }
+            catch (JsonException)
+            {
+                // Une panne en amont (proxy, passerelle) peut renvoyer du texte/HTML au lieu de JSON.
+            }
+
+            var message = $"Erreur API Gemini ({httpResponse.StatusCode}) : {errorMessage ?? "inconnue"}";
+            if (IsTransientStatus(httpResponse.StatusCode))
+            {
+                throw new AiProviderTransientException(message);
+            }
+            throw new InvalidOperationException(message);
         }
+
+        var body = await httpResponse.Content.ReadFromJsonAsync<GeminiResponse>(JsonOptions, cancellationToken)
+            ?? throw new InvalidOperationException("Réponse vide de l'API Gemini.");
 
         var text = body.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text;
         if (string.IsNullOrEmpty(text))
